@@ -10,20 +10,35 @@ const char WiFi_pass[] = "83911903";
 const char MQTT_server[] = "172.105.76.166";
 const int MQTT_port = 1883;
 
+WiFiClient wifiClient;
 PubSubClient pubSubCli;
-void WiFiSetup(const char* ssid, const char* pass);
-void MQTTSetup(PubSubClient* subClient, const char* mqtt_ip, int mqtt_port);
+String clientName;
 void callback_fnc(const char* topic, const byte* payload, unsigned int length);
+void WiFiSetup(const char* ssid, const char* pass);
+void MQTTSetup(const char* mqtt_ip, int mqtt_port);
+String macToStr(const uint8_t* mac);
 
 __unused void setup(){
     delay(5000);
     Serial.begin(9600);
+    Serial.setTimeout(100);
     WiFiSetup(WiFi_ssid, WiFi_pass);
-    MQTTSetup(&pubSubCli, MQTT_server, MQTT_port);
-//    pubsubclient.setCallback(&callback_fnc);
+    MQTTSetup(MQTT_server, MQTT_port);
 }
 
 void loop() {
+    if (!pubSubCli.connected()){
+        MQTTSetup(MQTT_server, MQTT_port);
+    }
+    else if (WiFi.status() != WL_CONNECTED){
+        WiFiSetup(WiFi_ssid, WiFi_pass);
+        MQTTSetup(MQTT_server, MQTT_port);
+    }
+    if (Serial.available()){
+        String atmegaData = Serial.readString();
+        String topic = "/" + clientName + "/data";
+        pubSubCli.publish((char*) topic.c_str(), (char*) atmegaData.c_str());
+    }
     pubSubCli.loop();
     delay(10);
 }
@@ -52,30 +67,28 @@ void WiFiSetup(const char* ssid, const char* pass){
     }
 }
 
-void MQTTSetup(PubSubClient* subClient, const char* mqtt_ip, int mqtt_port){
-//     MAC address setup
-//    uint8_t mac[6];
-//    WiFi.macAddress(mac);
-//    Serial.println((char*) mac);
-//    Serial.println(mac);
-
+void MQTTSetup(const char* mqtt_ip, int mqtt_port){
+    // MAC address setup
+    clientName += "esp8266-";
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    clientName += macToStr(mac);
 
     Serial.println("Trying MQTT connection...");
-    WiFiClient WiFiClient;
-    pubSubCli.setClient(WiFiClient);
+    pubSubCli.setClient(wifiClient);
     pubSubCli.setServer(mqtt_ip, mqtt_port);
+    pubSubCli.setCallback(callback_fnc);
     while (!pubSubCli.connected()){
-        pubSubCli.connect("TheCli");
+        pubSubCli.connect((char*) clientName.c_str());
         delay(500);
     }
-    Serial.println("Yaaaaa0");
+    pubSubCli.publish("/init", (char*) clientName.c_str());
 }
 
 String macToStr(const uint8_t* mac){
     String result;
     for (int i = 0; i < 6; ++i) {
-        result += String(mac[i], 16);
-
+        result += String(mac[i], HEX);
         if (i < 5){
             result += ':';
         }
@@ -86,4 +99,3 @@ String macToStr(const uint8_t* mac){
 void callback_fnc(const char* topic, const byte* payload, unsigned int length){
     Serial.println((char*) payload);
 }
-
